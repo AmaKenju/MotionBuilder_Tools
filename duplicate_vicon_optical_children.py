@@ -1,15 +1,20 @@
 from pyfbsdk import (
     FBFindModelByLabelName,
     FBModelNull,
+    FBModelSkeleton,
     FBSystem,
     FBConstraintRelation,
     FBConnect,
+    FBColor,
 )
 
 
 TARGET_NAME = "Vicon:Optical"
 NEW_ROOT_NAME = "Vicon:Optical_copy"
 RELATION_NAME = "Vicon_Optical_copy_Relation"
+
+# Color applied to cloned skeleton bones (RGB, 0.0-1.0).
+CLONE_BONE_COLOR = FBColor(1.0, 0.2, 0.2)
 
 
 def collect_existing_namespaces():
@@ -59,6 +64,9 @@ def clone_hierarchy(model, new_parent, target_namespace, pairs):
     _, short = split_namespace(model.LongName)
     clone.LongName = "{0}:{1}".format(target_namespace, short)
 
+    if isinstance(clone, FBModelSkeleton):
+        clone.Color = CLONE_BONE_COLOR
+
     pairs.append((model, clone))
 
     for child in list(model.Children):
@@ -104,6 +112,11 @@ def find_anim_node(parent_node, name):
 
 
 def build_relation(name, pairs, channels=("Translation", "Rotation")):
+    skeleton_pairs = [
+        (src, dst) for (src, dst) in pairs
+        if isinstance(src, FBModelSkeleton) and isinstance(dst, FBModelSkeleton)
+    ]
+
     relation = FBConstraintRelation(name)
     relation.Active = True
 
@@ -112,7 +125,7 @@ def build_relation(name, pairs, channels=("Translation", "Rotation")):
     x_receiver = 600
 
     connected = 0
-    for index, (source_model, dest_model) in enumerate(pairs):
+    for index, (source_model, dest_model) in enumerate(skeleton_pairs):
         sender_box = relation.SetAsSource(source_model)
         receiver_box = relation.ConstrainObject(dest_model)
 
@@ -130,13 +143,13 @@ def build_relation(name, pairs, channels=("Translation", "Rotation")):
                 FBConnect(src, dst)
                 connected += 1
 
-    return relation, connected
+    return relation, len(skeleton_pairs), connected
 
 
 new_root, pairs = duplicate_children_under_new_root(TARGET_NAME, NEW_ROOT_NAME)
 print("Created new top-level node: '{0}'".format(new_root.LongName))
-print("Pairs to connect: {0}".format(len(pairs)))
+print("Total pairs cloned: {0}".format(len(pairs)))
 
-relation, connection_count = build_relation(RELATION_NAME, pairs)
-print("Relation '{0}' created with {1} channel connection(s).".format(
-    relation.LongName, connection_count))
+relation, skel_count, connection_count = build_relation(RELATION_NAME, pairs)
+print("Relation '{0}': {1} skeleton pair(s), {2} channel connection(s).".format(
+    relation.LongName, skel_count, connection_count))

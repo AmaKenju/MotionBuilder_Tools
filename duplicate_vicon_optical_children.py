@@ -111,7 +111,7 @@ def find_anim_node(parent_node, name):
     return None
 
 
-def build_relation(name, pairs, channels=("Translation", "Rotation")):
+def build_relation(name, pairs, channels=("Lcl Translation", "Lcl Rotation")):
     skeleton_pairs = [
         (src, dst) for (src, dst) in pairs
         if isinstance(src, FBModelSkeleton) and isinstance(dst, FBModelSkeleton)

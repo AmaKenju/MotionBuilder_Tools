@@ -134,7 +134,7 @@ def build_local_relation(name, pairs):
 
     connected = 0
     for index, (src_model, dst_model) in enumerate(skeleton_pairs):
-        src_box = relation.ConstrainObject(src_model)
+        src_box = relation.SetAsSource(src_model)
         dst_box = relation.ConstrainObject(dst_model)
 
         src_box.UseGlobalTransforms = False

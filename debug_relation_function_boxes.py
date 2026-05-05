@@ -1,40 +1,33 @@
-from pyfbsdk import FBConstraintRelation
+from pyfbsdk import FBConstraintRelation, FBSystem, FBModelSkeleton
 
 
-def dump_box(box, label):
-    print("\n=== {0} ===".format(label))
-    if box is None:
-        print("  (None)")
-        return
-    print("Type: {0}".format(type(box).__name__))
-    print("Properties:")
-    for p in box.PropertyList:
-        print("  - {0}  (type={1})".format(p.Name, type(p).__name__))
-    out = box.AnimationNodeOutGet()
-    print("Output animation nodes:")
-    if out is not None:
-        for n in out.Nodes:
-            print("  - {0}".format(n.Name))
-    inp = box.AnimationNodeInGet()
-    print("Input animation nodes:")
-    if inp is not None:
-        for n in inp.Nodes:
-            print("  - {0}".format(n.Name))
+skel = None
+for c in FBSystem().Scene.Components:
+    if isinstance(c, FBModelSkeleton):
+        skel = c
+        break
 
+if skel is None:
+    print("No FBModelSkeleton found in scene.")
+else:
+    print("Using skeleton: {0}".format(skel.LongName))
 
-relation = FBConstraintRelation("DEBUG_FunctionBox_Probe")
+    relation = FBConstraintRelation("PROBE_LocalTransform_v2")
 
-candidates = [
-    ("Senders", "Position"),
-    ("Senders", "Rotation"),
-    ("Senders", "Source"),
-    ("Receivers", "Position"),
-    ("Receivers", "Rotation"),
-    ("Receivers", "Source"),
-]
+    receiver = relation.ConstrainObject(skel)
 
-for group, fname in candidates:
-    box = relation.CreateFunctionBox(group, fname)
-    dump_box(box, "{0} / {1}".format(group, fname))
+    print("\n=== Receiver box dir() entries containing 'local'/'lcl'/'transform' ===")
+    keywords = ("local", "lcl", "transform")
+    for attr in dir(receiver):
+        low = attr.lower()
+        if any(k in low for k in keywords):
+            try:
+                val = getattr(receiver, attr)
+                print("  - {0}  =  {1!r}".format(attr, val))
+            except Exception as e:
+                print("  - {0}  (getattr error: {1})".format(attr, e))
 
-print("\n---- DONE ----")
+    print("\n=== Receiver box ALL public attrs (no underscore) ===")
+    for attr in sorted(dir(receiver)):
+        if not attr.startswith("_"):
+            print("  - {0}".format(attr))

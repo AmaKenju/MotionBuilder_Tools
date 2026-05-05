@@ -110,49 +110,16 @@ def find_anim_node(parent_node, name):
     return None
 
 
-def dump_box(box, label):
-    print("--- {0} ({1}) ---".format(label, type(box).__name__ if box else "None"))
-    if box is None:
-        return
-    print("  Properties:")
-    for p in box.PropertyList:
-        print("    - {0}  ({1})".format(p.Name, type(p).__name__))
-    out = box.AnimationNodeOutGet()
-    print("  Output animation nodes:")
-    if out is not None:
-        for n in out.Nodes:
-            print("    - {0}".format(n.Name))
-    inp = box.AnimationNodeInGet()
-    print("  Input animation nodes:")
-    if inp is not None:
-        for n in inp.Nodes:
-            print("    - {0}".format(n.Name))
+def build_local_relation(name, pairs):
+    """Build a Relation Constraint with Lcl IN/OUT pins on both source and destination.
 
-
-def set_function_box_source(box, model):
-    """Try a few common patterns to assign a source model to a function box."""
-    src_prop = box.PropertyList.Find("Source")
-    if src_prop is None:
-        src_prop = box.PropertyList.Find("Object")
-    if src_prop is None:
-        return False
-
-    # Try as a list-of-objects property
-    try:
-        src_prop.append(model)
-        return True
-    except Exception:
-        pass
-    # Try as a single-object reference property
-    try:
-        src_prop.Data = model
-        return True
-    except Exception:
-        pass
-    return False
-
-
-def build_relation_local(name, pairs):
+    Both sides use ConstrainObject() to get FBModelPlaceHolder boxes, then
+    UseGlobalTransforms=False switches both their input and output animation
+    nodes to 'Lcl Translation' / 'Lcl Rotation' / 'Lcl Scaling' (this is the
+    Python equivalent of the right-click "Local transformations" menu in the
+    Relation editor). The source box's IN pins are simply left unconnected so
+    the source model is not actually driven.
+    """
     skeleton_pairs = [
         (src, dst) for (src, dst) in pairs
         if isinstance(src, FBModelSkeleton) and isinstance(dst, FBModelSkeleton)
@@ -161,53 +128,31 @@ def build_relation_local(name, pairs):
     relation = FBConstraintRelation(name)
     relation.Active = True
 
-    y_step = 220
-    x_pos_sender = 0
-    x_rot_sender = 0
-    x_receiver = 700
+    y_step = 130
+    x_source = 0
+    x_dest = 700
 
-    diagnostics_printed = False
     connected = 0
-
     for index, (src_model, dst_model) in enumerate(skeleton_pairs):
-        pos_sender = relation.CreateFunctionBox("Senders", "Position")
-        rot_sender = relation.CreateFunctionBox("Senders", "Rotation")
-        receiver_box = relation.ConstrainObject(dst_model)
+        src_box = relation.ConstrainObject(src_model)
+        dst_box = relation.ConstrainObject(dst_model)
 
-        if pos_sender is None or rot_sender is None:
-            print("ERROR: Could not create Position/Rotation sender function box.")
-            return relation, len(skeleton_pairs), connected
-
-        set_function_box_source(pos_sender, src_model)
-        set_function_box_source(rot_sender, src_model)
+        src_box.UseGlobalTransforms = False
+        dst_box.UseGlobalTransforms = False
 
         y = index * y_step
-        relation.SetBoxPosition(pos_sender, x_pos_sender, y)
-        relation.SetBoxPosition(rot_sender, x_rot_sender, y + 90)
-        relation.SetBoxPosition(receiver_box, x_receiver, y)
+        relation.SetBoxPosition(src_box, x_source, y)
+        relation.SetBoxPosition(dst_box, x_dest, y)
 
-        if not diagnostics_printed:
-            diagnostics_printed = True
-            dump_box(pos_sender, "Position Sender")
-            dump_box(rot_sender, "Rotation Sender")
-            dump_box(receiver_box, "Receiver model box")
+        src_out = src_box.AnimationNodeOutGet()
+        dst_in = dst_box.AnimationNodeInGet()
 
-        pos_out = pos_sender.AnimationNodeOutGet()
-        rot_out = rot_sender.AnimationNodeOutGet()
-        rcv_in = receiver_box.AnimationNodeInGet()
-
-        # Lcl Translation -> receiver Translation (which animates Lcl on the model)
-        src_lcl_t = find_anim_node(pos_out, "Lcl Translation")
-        dst_t = find_anim_node(rcv_in, "Translation")
-        if src_lcl_t is not None and dst_t is not None:
-            FBConnect(src_lcl_t, dst_t)
-            connected += 1
-
-        src_lcl_r = find_anim_node(rot_out, "Lcl Rotation")
-        dst_r = find_anim_node(rcv_in, "Rotation")
-        if src_lcl_r is not None and dst_r is not None:
-            FBConnect(src_lcl_r, dst_r)
-            connected += 1
+        for ch in ("Lcl Translation", "Lcl Rotation"):
+            src_node = find_anim_node(src_out, ch)
+            dst_node = find_anim_node(dst_in, ch)
+            if src_node is not None and dst_node is not None:
+                FBConnect(src_node, dst_node)
+                connected += 1
 
     return relation, len(skeleton_pairs), connected
 
@@ -216,6 +161,6 @@ new_root, pairs = duplicate_children_under_new_root(TARGET_NAME, NEW_ROOT_NAME)
 print("Created new top-level node: '{0}'".format(new_root.LongName))
 print("Total pairs cloned: {0}".format(len(pairs)))
 
-relation, skel_count, connection_count = build_relation_local(RELATION_NAME, pairs)
-print("Relation '{0}': {1} skeleton pair(s), {2} channel connection(s).".format(
+relation, skel_count, connection_count = build_local_relation(RELATION_NAME, pairs)
+print("Relation '{0}': {1} skeleton pair(s), {2} Lcl channel connection(s).".format(
     relation.LongName, skel_count, connection_count))

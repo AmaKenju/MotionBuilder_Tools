@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+# Compatible with both Python 2.7 (MotionBuilder <=2019) and Python 3.7+ (MotionBuilder 2022+).
 from pyfbsdk import (
     FBFindModelByLabelName,
     FBModelNull,

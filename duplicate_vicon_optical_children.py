@@ -13,7 +13,6 @@ TARGET_NAME = "Vicon:Optical"
 NEW_ROOT_NAME = "Vicon:Optical_copy"
 RELATION_NAME = "Vicon_Optical_copy_Relation"
 
-# Color applied to cloned skeleton bones (RGB, 0.0-1.0).
 CLONE_BONE_COLOR = FBColor(1.0, 0.2, 0.2)
 
 
@@ -111,7 +110,49 @@ def find_anim_node(parent_node, name):
     return None
 
 
-def build_relation(name, pairs, channels=("Translation", "Rotation")):
+def dump_box(box, label):
+    print("--- {0} ({1}) ---".format(label, type(box).__name__ if box else "None"))
+    if box is None:
+        return
+    print("  Properties:")
+    for p in box.PropertyList:
+        print("    - {0}  ({1})".format(p.Name, type(p).__name__))
+    out = box.AnimationNodeOutGet()
+    print("  Output animation nodes:")
+    if out is not None:
+        for n in out.Nodes:
+            print("    - {0}".format(n.Name))
+    inp = box.AnimationNodeInGet()
+    print("  Input animation nodes:")
+    if inp is not None:
+        for n in inp.Nodes:
+            print("    - {0}".format(n.Name))
+
+
+def set_function_box_source(box, model):
+    """Try a few common patterns to assign a source model to a function box."""
+    src_prop = box.PropertyList.Find("Source")
+    if src_prop is None:
+        src_prop = box.PropertyList.Find("Object")
+    if src_prop is None:
+        return False
+
+    # Try as a list-of-objects property
+    try:
+        src_prop.append(model)
+        return True
+    except Exception:
+        pass
+    # Try as a single-object reference property
+    try:
+        src_prop.Data = model
+        return True
+    except Exception:
+        pass
+    return False
+
+
+def build_relation_local(name, pairs):
     skeleton_pairs = [
         (src, dst) for (src, dst) in pairs
         if isinstance(src, FBModelSkeleton) and isinstance(dst, FBModelSkeleton)
@@ -120,28 +161,53 @@ def build_relation(name, pairs, channels=("Translation", "Rotation")):
     relation = FBConstraintRelation(name)
     relation.Active = True
 
-    y_step = 120
-    x_sender = 0
-    x_receiver = 600
+    y_step = 220
+    x_pos_sender = 0
+    x_rot_sender = 0
+    x_receiver = 700
 
+    diagnostics_printed = False
     connected = 0
-    for index, (source_model, dest_model) in enumerate(skeleton_pairs):
-        sender_box = relation.SetAsSource(source_model)
-        receiver_box = relation.ConstrainObject(dest_model)
+
+    for index, (src_model, dst_model) in enumerate(skeleton_pairs):
+        pos_sender = relation.CreateFunctionBox("Senders", "Position")
+        rot_sender = relation.CreateFunctionBox("Senders", "Rotation")
+        receiver_box = relation.ConstrainObject(dst_model)
+
+        if pos_sender is None or rot_sender is None:
+            print("ERROR: Could not create Position/Rotation sender function box.")
+            return relation, len(skeleton_pairs), connected
+
+        set_function_box_source(pos_sender, src_model)
+        set_function_box_source(rot_sender, src_model)
 
         y = index * y_step
-        relation.SetBoxPosition(sender_box, x_sender, y)
+        relation.SetBoxPosition(pos_sender, x_pos_sender, y)
+        relation.SetBoxPosition(rot_sender, x_rot_sender, y + 90)
         relation.SetBoxPosition(receiver_box, x_receiver, y)
 
-        out_root = sender_box.AnimationNodeOutGet()
-        in_root = receiver_box.AnimationNodeInGet()
+        if not diagnostics_printed:
+            diagnostics_printed = True
+            dump_box(pos_sender, "Position Sender")
+            dump_box(rot_sender, "Rotation Sender")
+            dump_box(receiver_box, "Receiver model box")
 
-        for ch in channels:
-            src = find_anim_node(out_root, ch)
-            dst = find_anim_node(in_root, ch)
-            if src is not None and dst is not None:
-                FBConnect(src, dst)
-                connected += 1
+        pos_out = pos_sender.AnimationNodeOutGet()
+        rot_out = rot_sender.AnimationNodeOutGet()
+        rcv_in = receiver_box.AnimationNodeInGet()
+
+        # Lcl Translation -> receiver Translation (which animates Lcl on the model)
+        src_lcl_t = find_anim_node(pos_out, "Lcl Translation")
+        dst_t = find_anim_node(rcv_in, "Translation")
+        if src_lcl_t is not None and dst_t is not None:
+            FBConnect(src_lcl_t, dst_t)
+            connected += 1
+
+        src_lcl_r = find_anim_node(rot_out, "Lcl Rotation")
+        dst_r = find_anim_node(rcv_in, "Rotation")
+        if src_lcl_r is not None and dst_r is not None:
+            FBConnect(src_lcl_r, dst_r)
+            connected += 1
 
     return relation, len(skeleton_pairs), connected
 
@@ -150,6 +216,6 @@ new_root, pairs = duplicate_children_under_new_root(TARGET_NAME, NEW_ROOT_NAME)
 print("Created new top-level node: '{0}'".format(new_root.LongName))
 print("Total pairs cloned: {0}".format(len(pairs)))
 
-relation, skel_count, connection_count = build_relation(RELATION_NAME, pairs)
+relation, skel_count, connection_count = build_relation_local(RELATION_NAME, pairs)
 print("Relation '{0}': {1} skeleton pair(s), {2} channel connection(s).".format(
     relation.LongName, skel_count, connection_count))

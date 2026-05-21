@@ -18,10 +18,17 @@ RELATION_NAME = "Vicon_Optical_copy_Relation"
 CLONE_BONE_COLOR = FBColor(1.0, 0.2, 0.2)
 
 
+def safe_long_name(component):
+    try:
+        return getattr(component, "LongName", "") or ""
+    except UnicodeDecodeError:
+        return ""
+
+
 def collect_existing_namespaces():
     existing = set()
     for c in FBSystem().Scene.Components:
-        ln = getattr(c, "LongName", "") or ""
+        ln = safe_long_name(c)
         if ":" in ln:
             existing.add(ln.split(":", 1)[0])
     return existing
@@ -30,7 +37,7 @@ def collect_existing_namespaces():
 def collect_existing_long_names():
     names = set()
     for c in FBSystem().Scene.Components:
-        ln = getattr(c, "LongName", "") or ""
+        ln = safe_long_name(c)
         if ln:
             names.add(ln)
     return names

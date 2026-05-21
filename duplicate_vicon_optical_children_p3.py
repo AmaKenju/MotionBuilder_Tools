@@ -4,6 +4,7 @@ from pyfbsdk import (
     FBFindModelByLabelName,
     FBModelNull,
     FBModelSkeleton,
+    FBModelMarker,
     FBSystem,
     FBConstraintRelation,
     FBConnect,
@@ -13,9 +14,21 @@ from pyfbsdk import (
 
 TARGET_NAME = "Vicon:Optical"
 NEW_ROOT_NAME = "Vicon:Optical_copy"
+MARKERS_ROOT_NAME = "Vicon:Optical_copy_OffsetMarkers"
 RELATION_NAME = "Vicon_Optical_copy_Relation"
 
 CLONE_BONE_COLOR = FBColor(1.0, 0.2, 0.2)
+MARKER_COLOR = FBColor(0.1, 0.9, 1.0)
+
+ADD_BOX_CANDIDATES = [
+    ("Vector", "Add (V1 + V2)"),
+    ("Vector", "Add"),
+    ("Number", "Add (V1 + V2)"),
+    ("Number", "Add"),
+    ("Other", "Add (V1 + V2)"),
+    ("Other", "Add"),
+    ("Number", "Add (a + b)"),
+]
 
 
 def safe_long_name(component):
@@ -110,66 +123,177 @@ def duplicate_children_under_new_root(parent_name, new_root_name):
     return new_root, pairs
 
 
-def find_anim_node(parent_node, name):
+def find_anim_node(parent_node, *names):
     if parent_node is None:
         return None
     for n in parent_node.Nodes:
-        if n.Name == name:
-            return n
+        for target in names:
+            if n.Name == target:
+                return n
     return None
 
 
-def build_local_relation(name, pairs):
-    """Build a Relation Constraint with Lcl IN/OUT pins on both source and destination.
+_add_box_path_cache = [None]
 
-    Both sides use ConstrainObject() to get FBModelPlaceHolder boxes, then
-    UseGlobalTransforms=False switches both their input and output animation
-    nodes to 'Lcl Translation' / 'Lcl Rotation' / 'Lcl Scaling' (this is the
-    Python equivalent of the right-click "Local transformations" menu in the
-    Relation editor). The source box's IN pins are simply left unconnected so
-    the source model is not actually driven.
+
+def create_add_box(relation):
+    if _add_box_path_cache[0] is not None:
+        group, name = _add_box_path_cache[0]
+        return relation.CreateFunctionBox(group, name)
+    for group, name in ADD_BOX_CANDIDATES:
+        try:
+            box = relation.CreateFunctionBox(group, name)
+        except Exception:
+            continue
+        if box is not None:
+            _add_box_path_cache[0] = (group, name)
+            return box
+    return None
+
+
+def create_marker_group(existing_long_names):
+    unique = make_unique(MARKERS_ROOT_NAME, existing_long_names)
+    ns, short = split_namespace(unique)
+    grp = FBModelNull(short)
+    if ns:
+        grp.LongName = "{0}:{1}".format(ns, short)
+    grp.Show = True
+    return grp
+
+
+def build_offset_relation(name, pairs):
+    """For each skeleton pair, build an Offset Marker + Relation graph:
+
+        src.LclT  ─────────────────────►  dst.LclT
+        src.LclR  ──┐
+                    Add(V1+V2) ─►  dst.LclR
+        marker.LclR ┘
+
+        dst.GlobalT  ──►  marker.GlobalT     (keeps marker aligned with dst)
+
+    Rotating the marker in the viewport injects a per-bone offset rotation
+    on top of the source's local rotation.
     """
     skeleton_pairs = [
         (src, dst) for (src, dst) in pairs
         if isinstance(src, FBModelSkeleton) and isinstance(dst, FBModelSkeleton)
     ]
 
+    existing_long_names = collect_existing_long_names()
+    marker_group = create_marker_group(existing_long_names)
+
     relation = FBConstraintRelation(name)
     relation.Active = True
 
-    y_step = 130
-    x_source = 0
-    x_dest = 700
+    y_step = 260
+    x_src_sender = 0
+    x_add = 450
+    x_dst_receiver = 900
+    x_dst_sender = 0
+    x_marker_receiver = 900
 
-    connected = 0
+    markers = []
+    connections = 0
+    add_box_failed = False
+    diag_done = False
+
     for index, (src_model, dst_model) in enumerate(skeleton_pairs):
-        src_box = relation.SetAsSource(src_model)
-        dst_box = relation.ConstrainObject(dst_model)
+        _, dst_short = split_namespace(dst_model.LongName)
+        marker_name = "{0}_offset".format(dst_short)
+        marker = FBModelMarker(marker_name)
+        marker.Parent = marker_group
+        marker.Color = MARKER_COLOR
+        marker.Show = True
+        markers.append(marker)
 
-        src_box.UseGlobalTransforms = False
-        dst_box.UseGlobalTransforms = False
+        src_sender = relation.SetAsSource(src_model)
+        src_sender.UseGlobalTransforms = False
+
+        dst_receiver = relation.ConstrainObject(dst_model)
+        dst_receiver.UseGlobalTransforms = False
+
+        marker_sender = relation.SetAsSource(marker)
+        marker_sender.UseGlobalTransforms = False
+
+        dst_sender = relation.SetAsSource(dst_model)
+        # leave as Global (default) for Translation output
+
+        marker_receiver = relation.ConstrainObject(marker)
+        # leave as Global (default) for Translation input
+
+        add_box = create_add_box(relation)
+        if add_box is None:
+            if not add_box_failed:
+                print("ERROR: Could not create an Add function box. "
+                      "Tried: {0}".format(ADD_BOX_CANDIDATES))
+                add_box_failed = True
+            continue
 
         y = index * y_step
-        relation.SetBoxPosition(src_box, x_source, y)
-        relation.SetBoxPosition(dst_box, x_dest, y)
+        relation.SetBoxPosition(src_sender, x_src_sender, y)
+        relation.SetBoxPosition(marker_sender, x_src_sender, y + 100)
+        relation.SetBoxPosition(add_box, x_add, y + 50)
+        relation.SetBoxPosition(dst_receiver, x_dst_receiver, y)
+        relation.SetBoxPosition(dst_sender, x_dst_sender, y + 170)
+        relation.SetBoxPosition(marker_receiver, x_marker_receiver, y + 170)
 
-        src_out = src_box.AnimationNodeOutGet()
-        dst_in = dst_box.AnimationNodeInGet()
+        src_out = src_sender.AnimationNodeOutGet()
+        dst_in = dst_receiver.AnimationNodeInGet()
+        marker_out = marker_sender.AnimationNodeOutGet()
+        dst_sender_out = dst_sender.AnimationNodeOutGet()
+        marker_in = marker_receiver.AnimationNodeInGet()
+        add_in = add_box.AnimationNodeInGet()
+        add_out = add_box.AnimationNodeOutGet()
 
-        for ch in ("Lcl Translation", "Lcl Rotation"):
-            src_node = find_anim_node(src_out, ch)
-            dst_node = find_anim_node(dst_in, ch)
-            if src_node is not None and dst_node is not None:
-                FBConnect(src_node, dst_node)
-                connected += 1
+        if not diag_done:
+            diag_done = True
+            print("Add box created via {0}".format(_add_box_path_cache[0]))
+            print("  IN nodes:")
+            for n in add_in.Nodes:
+                print("    - {0}".format(n.Name))
+            print("  OUT nodes:")
+            for n in add_out.Nodes:
+                print("    - {0}".format(n.Name))
 
-    return relation, len(skeleton_pairs), connected
+        src_lcl_t = find_anim_node(src_out, "Lcl Translation")
+        dst_lcl_t = find_anim_node(dst_in, "Lcl Translation")
+        if src_lcl_t is not None and dst_lcl_t is not None:
+            FBConnect(src_lcl_t, dst_lcl_t)
+            connections += 1
+
+        src_lcl_r = find_anim_node(src_out, "Lcl Rotation")
+        marker_lcl_r = find_anim_node(marker_out, "Lcl Rotation")
+        v1 = find_anim_node(add_in, "V1", "v1", "a", "A")
+        v2 = find_anim_node(add_in, "V2", "v2", "b", "B")
+        result = find_anim_node(add_out, "Result", "result", "Output", "Out")
+
+        if src_lcl_r is not None and v1 is not None:
+            FBConnect(src_lcl_r, v1)
+            connections += 1
+        if marker_lcl_r is not None and v2 is not None:
+            FBConnect(marker_lcl_r, v2)
+            connections += 1
+        if result is not None:
+            dst_lcl_r = find_anim_node(dst_in, "Lcl Rotation")
+            if dst_lcl_r is not None:
+                FBConnect(result, dst_lcl_r)
+                connections += 1
+
+        dst_global_t = find_anim_node(dst_sender_out, "Translation")
+        marker_global_t = find_anim_node(marker_in, "Translation")
+        if dst_global_t is not None and marker_global_t is not None:
+            FBConnect(dst_global_t, marker_global_t)
+            connections += 1
+
+    return relation, marker_group, markers, connections
 
 
 new_root, pairs = duplicate_children_under_new_root(TARGET_NAME, NEW_ROOT_NAME)
 print("Created new top-level node: '{0}'".format(new_root.LongName))
 print("Total pairs cloned: {0}".format(len(pairs)))
 
-relation, skel_count, connection_count = build_local_relation(RELATION_NAME, pairs)
-print("Relation '{0}': {1} skeleton pair(s), {2} Lcl channel connection(s).".format(
-    relation.LongName, skel_count, connection_count))
+relation, marker_group, markers, connection_count = build_offset_relation(RELATION_NAME, pairs)
+print("Marker group: '{0}', markers created: {1}".format(
+    marker_group.LongName, len(markers)))
+print("Relation '{0}': {1} channel connection(s).".format(
+    relation.LongName, connection_count))

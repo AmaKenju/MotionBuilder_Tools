@@ -53,12 +53,15 @@ except NameError:
     # __file__ is undefined if the code was pasted straight into the editor.
     _THIS_DIR = os.getcwd()
 
-SUBJECT_GROUPS_FILE = os.path.join(_THIS_DIR, "subject_groups.json")
-
 if _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
 
 import shogun_live_connect as shogun  # noqa: E402  (needs _THIS_DIR on sys.path)
+
+# Keyed off the imported module rather than _THIS_DIR: a module always has a
+# real __file__, so the groups file stays next to the tools even when this
+# script is launched from the Crescent menu.
+SUBJECT_GROUPS_FILE = os.path.join(shogun.TOOLS_DIR, "subject_groups.json")
 
 
 # ---------------------------------------------------------------------------

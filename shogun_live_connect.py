@@ -38,6 +38,11 @@ import os
 import re
 import sys
 
+# Folder holding this repo's tools. Taken from this module's own location, so
+# it stays correct even when a tool is launched in a way that leaves __file__
+# undefined in the top-level script (menu launchers, FBApplication.ExecuteScript).
+TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # ---------------------------------------------------------------------------
 # Settings
 # ---------------------------------------------------------------------------

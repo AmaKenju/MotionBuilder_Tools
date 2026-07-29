@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import ast,sys; ast.parse\\(open\\('connect_shogun_live_device_p3.py',encoding='utf-8'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "PowerShell($roots = @\\(\"C:\\\\Program Files\\\\Vicon\",\"C:\\\\Program Files \\(x86\\)\\\\Vicon\"\\); foreach \\($r in $roots\\) { if \\(Test-Path $r\\) { Write-Output \"== $r ==\"; Get-ChildItem $r -Directory | Select-Object -ExpandProperty FullName } else { Write-Output \"== $r : not found ==\" } })",
+      "Read(//c//**)",
+      "Read(//c/Program Files/Vicon/ShogunLive1.19/**)",
+      "Read(//c/Program Files/Autodesk/**)",
+      "PowerShell(Get-ChildItem \"C:\\\\Program Files\\\\Vicon\\\\ShogunLive1.19\\\\SDK\\\\Python\\\\shogun_live_api\\\\VERSION\",\"C:\\\\Program Files\\\\Vicon\\\\ShogunLive1.19\\\\SDK\\\\Python\\\\vicon_core_api\\\\VERSION\" | ForEach-Object { \"$\\($_.Directory.Name\\): $\\(Get-Content $_.FullName\\)\" })",
+      "PowerShell($p = \\(Get-Command python -ErrorAction SilentlyContinue\\).Source; if \\($p\\) { Write-Output $p; & python --version } else { Write-Output \"no python on PATH\" })",
+      "PowerShell(python -S \"C:\\\\Users\\\\Owner\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Owner-Documents-GitHub-MotionBuilder-Tools\\\\65079e8d-3a59-473a-8d92-8b50ea08820e\\\\scratchpad\\\\test_sdk_discovery.py\")"
+    ]
+  }
+}

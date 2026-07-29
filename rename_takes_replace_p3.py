@@ -8,8 +8,8 @@ from pyfbsdk import FBSystem
 #   FIND    = the text to search for      (検索)
 #   REPLACE = the text to replace it with (置換後の文字列)
 # ---------------------------------------------------------------------------
-FIND = "old"
-REPLACE = "new"
+FIND = "A01"
+REPLACE = "A02"
 
 # If True, matching is case-insensitive.
 CASE_INSENSITIVE = False
